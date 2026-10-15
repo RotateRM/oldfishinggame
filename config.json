@@ -1,0 +1,32 @@
+{
+  "host": "127.0.0.1",
+  "ports": [4000, 4001],
+  "sessionPort": 19000,
+  "databaseFile": "fishingchamp.sqlite",
+  "accountsFile": "accounts.json",
+  "captureDirectory": "captures",
+  "idleTimeoutMs": 120000,
+  "maxCaptureBytesPerConnection": 1048576,
+  "greetingHex": "03000000",
+  "enableLoginReply": true,
+  "enableServerList": true,
+  "enableCheckInReply": true,
+  "enableGameLoginReply": true,
+  "enableMyCharacterList": true,
+  "enableChannelListReply": true,
+  "enableZoneListReply": true,
+  "enableCharacterCreation": true,
+  "enableCharacterSelectReply": true,
+  "enableZoneJoinReply": true,
+  "sendZoneJoinAfterCharacterSelect": true,
+  "spawnX": 64,
+  "spawnZ": 64,
+  "maxCurrency": 2147483647,
+  "itemInventoryLocations": {
+    "0x010201": 1,
+    "0x010264": 4,
+    "0x080201": 2,
+    "0x080264": 1
+  },
+  "gamePort": 4001
+}

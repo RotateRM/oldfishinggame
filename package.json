@@ -1,0 +1,15 @@
+{
+  "name": "fishingchamp-preservation-server",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node server.mjs",
+    "inspect": "node tools/inspect-client.mjs",
+    "test": "node --test",
+    "db:migrate": "node tools/db.mjs migrate",
+    "db:status": "node tools/db.mjs status",
+    "db:inspect": "node tools/db.mjs inspect",
+    "db:backup": "node tools/db.mjs backup"
+  },
+  "engines": { "node": ">=24" }
+}
