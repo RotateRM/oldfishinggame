@@ -18,6 +18,12 @@ character creation works
 map selection ( one map works )
 walking around works
 buying items from the shop works
-fishing doesnt work yet
+fishing kind of works now
 gardening doesnt work yet
 aquarium works a little
+
+
+only set up for local hosting with ports :
+4000
+4001
+19000

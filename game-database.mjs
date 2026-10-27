@@ -44,10 +44,10 @@ export function openGameDatabase(file, { legacyAccountsFile } = {}) {
   `);
   const accountByName = db.prepare('SELECT * FROM accounts WHERE username_normalized = ?');
   const insertAccount = db.prepare('INSERT INTO accounts (username, username_normalized, salt, password_hash) VALUES (?, ?, ?, ?)');
-  const insertCharacter = db.prepare('INSERT INTO characters (account_id, game_id, slot, name, appearance, level, grade) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const insertCharacter = db.prepare('INSERT INTO characters (account_id, game_id, slot, name, appearance, level, grade, equipment_capacity, strength, luck, focus_power, focus_rate, hitpoints) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const insertAquarium = db.prepare("INSERT OR IGNORE INTO aquariums (character_id, name) VALUES (?, ? || '''s Aquarium')");
   const insertItem = db.prepare('INSERT INTO inventory_items (instance_id, character_id, item_id, quantity, location, slot, modifier_1, modifier_2, modifier_3, modifier_4, duration, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  const toCharacter = row => ({ databaseId: Number(row.id), id: Number(row.game_id), slot: Number(row.slot), name: row.name, appearance: Number(row.appearance), level: Number(row.level), experience: Number(row.experience), experienceIntoLevel: Number(row.experience_into_level), grade: Number(row.grade), rankExperience: Number(row.rank_experience), gold: Number(row.gold), cash: Number(row.cash), ping: Number(row.ping) });
+  const toCharacter = row => ({ databaseId: Number(row.id), id: Number(row.game_id), slot: Number(row.slot), name: row.name, appearance: Number(row.appearance), level: Number(row.level), experience: Number(row.experience), experienceIntoLevel: Number(row.experience_into_level), grade: Number(row.grade), rankExperience: Number(row.rank_experience), gold: Number(row.gold), cash: Number(row.cash), ping: Number(row.ping), equipmentCapacity: Number(row.equipment_capacity), strength: Number(row.strength), luck: Number(row.luck), focusPower: Number(row.focus_power), focusRate: Number(row.focus_rate), hitPoints: Number(row.hitpoints) });
   const toAccount = row => ({ databaseId: Number(row.id), username: row.username, characters: characterRows.all(row.id).map(toCharacter) });
 
   const accountCount = Number(db.prepare('SELECT COUNT(*) AS count FROM accounts').get().count);
@@ -57,7 +57,7 @@ export function openGameDatabase(file, { legacyAccountsFile } = {}) {
     try {
       for (const [normalized, old] of Object.entries(legacy.users || {})) {
         const accountId = Number(insertAccount.run(old.username, normalized, old.salt, old.passwordHash).lastInsertRowid);
-        for (const character of old.characters || []) insertCharacter.run(accountId, character.id, character.slot, character.name, character.appearance ?? 0, character.level ?? 1, character.grade ?? 1);
+        for (const character of old.characters || []) insertCharacter.run(accountId, character.id, character.slot, character.name, character.appearance ?? 0, character.level ?? 1, character.grade ?? 1, character.equipmentCapacity ?? 100, character.strength ?? 100, character.luck ?? 100, character.focusPower ?? 100, character.focusRate ?? 100, character.hitPoints ?? 100);
       }
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -82,11 +82,25 @@ export function openGameDatabase(file, { legacyAccountsFile } = {}) {
     return { account: toAccount(row), created };
   };
   const createCharacter = (account, character) => {
-    const result = insertCharacter.run(account.databaseId, character.id, character.slot, character.name, character.appearance ?? 0, character.level ?? 1, character.grade ?? 1);
+    const result = insertCharacter.run(account.databaseId, character.id, character.slot, character.name, character.appearance ?? 0, character.level ?? 1, character.grade ?? 1, character.equipmentCapacity ?? 100, character.strength ?? 100, character.luck ?? 100, character.focusPower ?? 100, character.focusRate ?? 100, character.hitPoints ?? 100);
     const stored = { ...character, databaseId: Number(result.lastInsertRowid) };
     insertAquarium.run(stored.databaseId, stored.name);
     account.characters.push(stored);
     return stored;
+  };
+  const nextCharacterSlot = account => {
+    const occupied = new Set(account.characters.map(character => Number(character.slot)));
+    for (let slot = 1; slot <= 5; slot += 1) {
+      if (!occupied.has(slot)) return slot;
+    }
+    return null;
+  };
+  const deleteCharacter = (account, character) => {
+    const result = db.prepare('DELETE FROM characters WHERE id = ? AND account_id = ?').run(character.databaseId, account.databaseId);
+    if (Number(result.changes) !== 1) return false;
+    const index = account.characters.findIndex(candidate => candidate.databaseId === character.databaseId);
+    if (index >= 0) account.characters.splice(index, 1);
+    return true;
   };
   const inventoryFor = character => db.prepare('SELECT * FROM inventory_items WHERE character_id = ? ORDER BY location, slot').all(character.databaseId).map(row => ({ instanceId: Number(row.instance_id), itemId: Number(row.item_id), quantity: Number(row.quantity), inventoryWhere: Number(row.location), inventorySlot: Number(row.slot), modifiers: [Number(row.modifier_1), Number(row.modifier_2), Number(row.modifier_3), Number(row.modifier_4)], duration: Number(row.duration), active: Number(row.active) }));
   const addItem = (character, item) => insertItem.run(item.instanceId, character.databaseId, item.itemId, item.quantity ?? 1, item.inventoryWhere, item.inventorySlot, ...(item.modifiers ?? [0, 0, 0, 0]), item.duration ?? 0, item.active ?? 0);
@@ -94,17 +108,38 @@ export function openGameDatabase(file, { legacyAccountsFile } = {}) {
     db.exec('BEGIN IMMEDIATE');
     try {
       if (displacedItem) {
-        db.prepare('UPDATE inventory_items SET location = -1, slot = ? WHERE character_id = ? AND instance_id = ?').run(-displacedItem.instanceId, character.databaseId, displacedItem.instanceId);
+        db.prepare('UPDATE inventory_items SET location = -1, slot = ?, active = 0 WHERE character_id = ? AND instance_id = ?').run(-displacedItem.instanceId, character.databaseId, displacedItem.instanceId);
       }
-      db.prepare('UPDATE inventory_items SET location = ?, slot = ? WHERE character_id = ? AND instance_id = ?').run(location, slot, character.databaseId, item.instanceId);
+      db.prepare('UPDATE inventory_items SET location = ?, slot = ?, active = ? WHERE character_id = ? AND instance_id = ?').run(location, slot, location === 5 ? 1 : 0, character.databaseId, item.instanceId);
       if (displacedItem) {
-        db.prepare('UPDATE inventory_items SET location = ?, slot = ? WHERE character_id = ? AND instance_id = ?').run(sourceLocation, sourceSlot, character.databaseId, displacedItem.instanceId);
+        db.prepare('UPDATE inventory_items SET location = ?, slot = ?, active = ? WHERE character_id = ? AND instance_id = ?').run(sourceLocation, sourceSlot, sourceLocation === 5 ? 1 : 0, character.databaseId, displacedItem.instanceId);
       }
       db.exec('COMMIT');
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   };
   const enabledMaps = () => db.prepare('SELECT * FROM maps WHERE enabled = 1 ORDER BY id').all();
   const enabledChannels = mapId => db.prepare('SELECT * FROM channels WHERE map_id = ? AND enabled = 1 ORDER BY channel_number').all(mapId);
+  const fishFor = ({ mapId, fishingPoint = null, level = 1, random = Math.random }) => {
+    const candidates = db.prepare(`
+      SELECT fd.*, mf.weight, mf.fishing_point
+      FROM map_fish mf
+      JOIN fish_definitions fd ON fd.fish_id = mf.fish_id
+      WHERE mf.map_id = ? AND fd.enabled = 1
+        AND COALESCE(mf.minimum_level, fd.minimum_level, 1) <= ?
+        AND (mf.fishing_point IS NULL OR mf.fishing_point = ?)
+      ORDER BY CASE WHEN mf.fishing_point = ? THEN 0 ELSE 1 END, fd.fish_id
+    `).all(mapId, level, fishingPoint, fishingPoint);
+    if (!candidates.length) return null;
+    const specific = candidates.filter(candidate => candidate.fishing_point != null);
+    const pool = specific.length ? specific : candidates;
+    const totalWeight = pool.reduce((sum, candidate) => sum + Number(candidate.weight), 0);
+    let target = Math.min(0.999999999999, Math.max(0, Number(random()))) * totalWeight;
+    for (const candidate of pool) {
+      target -= Number(candidate.weight);
+      if (target < 0) return candidate;
+    }
+    return pool.at(-1);
+  };
   const itemDefinition = itemId => db.prepare('SELECT * FROM item_definitions WHERE item_id = ? AND enabled = 1').get(itemId) ?? null;
   const aquariumFor = character => db.prepare('SELECT * FROM aquariums WHERE character_id = ?').get(character.databaseId) ?? null;
   const setExperience = (character, experience) => {
@@ -117,5 +152,5 @@ export function openGameDatabase(file, { legacyAccountsFile } = {}) {
     return { experience: character.experience, level: character.level };
   };
   const addExperience = (character, amount) => setExperience(character, (character.experience ?? 0) + Math.trunc(Number(amount)));
-  return { db, authenticate, createCharacter, inventoryFor, addItem, moveItem, enabledMaps, enabledChannels, itemDefinition, aquariumFor, setExperience, addExperience, close: () => db.close() };
+  return { db, authenticate, createCharacter, nextCharacterSlot, deleteCharacter, inventoryFor, addItem, moveItem, enabledMaps, enabledChannels, fishFor, itemDefinition, aquariumFor, setExperience, addExperience, close: () => db.close() };
 }

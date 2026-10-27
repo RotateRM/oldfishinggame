@@ -50,6 +50,37 @@ export function zoneExitReply() {
   return encodePacket(68, Buffer.from([1]));
 }
 
+export function characterHitPointsNotify({ characterId, currentHitPoints, maximumHitPoints } = {}) {
+  // Reader 0x483f90/writer 0x483fc0: character u32, current HP u16,
+  // maximum HP u16.
+  for (const value of [currentHitPoints, maximumHitPoints]) {
+    if (!Number.isInteger(value) || value < 0 || value > 0xffff) throw new Error('Character hit points must fit in u16');
+  }
+  const payload = Buffer.alloc(8);
+  payload.writeUInt32LE(characterId >>> 0, 0);
+  payload.writeUInt16LE(currentHitPoints, 4);
+  payload.writeUInt16LE(maximumHitPoints, 6);
+  return encodePacket(0x45, payload);
+}
+
+// UpdateAbilityNotify writer at 0x483e40: character slot byte followed by
+// seven unsigned 16-bit ability values. The final pair mirrors current/max HP.
+export function updateAbilityNotify({ slot = 1, equipmentCapacity = 100, strength = 100, luck = 100, focusPower = 100, focusRate = 100, currentHitPoints = 1000, maximumHitPoints = currentHitPoints } = {}) {
+  const values = [strength, luck, focusPower, focusRate, equipmentCapacity, currentHitPoints, maximumHitPoints];
+  if (!Number.isInteger(slot) || slot < 1 || slot > 5) throw new Error('Invalid character slot');
+  if (values.some(value => !Number.isInteger(value) || value < 0 || value > 0xffff)) throw new Error('Ability values must fit in u16');
+  const payload = Buffer.alloc(15);
+  payload[0] = slot;
+  values.forEach((value, index) => payload.writeUInt16LE(value, 1 + index * 2));
+  return encodePacket(0x78, payload);
+}
+
+export function characterDeleteReply({ status = 1, name = '' } = {}) {
+  const encodedName = Buffer.from(name, 'ascii');
+  if (encodedName.length > 255) throw new Error('Invalid character name length');
+  return encodePacket(0x39, Buffer.concat([Buffer.from([status, encodedName.length]), encodedName]));
+}
+
 export function myCharacterListNotify({ characters = [{ name: 'TestAngler', id: 1, slot: 1 }] } = {}) {
   if (characters.length > 5) throw new Error('Client supports at most five character slots');
   const names = characters.map(character => Buffer.from(character.name, 'ascii'));
@@ -68,7 +99,7 @@ export function myCharacterListNotify({ characters = [{ name: 'TestAngler', id: 
     payload[offset++] = encodedName.length; encodedName.copy(payload, offset); offset += encodedName.length;
     // The in-world HUD reads this 16-bit field for the visible Lv. value.
     payload.writeUInt16LE(character.level ?? 1, offset); offset += 2;
-    payload.writeFloatLE(0, offset); offset += 4; // Equipment capacity/stat field.
+    payload.writeFloatLE(character.equipmentCapacity ?? 100, offset); offset += 4;
     payload.writeUInt32LE(character.rankExperience ?? 0, offset); offset += 4;
     payload.writeUInt16LE(character.grade ?? 1, offset); offset += 2;
     payload.writeUInt32LE(character.level ?? 1, offset); offset += 4;
@@ -170,6 +201,53 @@ export function updateGoldNotify({ gold = 0x7fffffff, ping = 0x7fffffff } = {}) 
   return encodePacket(0x74, payload);
 }
 
+export function gameTimeNotify({ hour = 0, minute = 0 } = {}) {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59) {
+    throw new Error('Game time must contain a valid hour and minute');
+  }
+  // GameTimeNotify writer at 0x480460 serializes two individual bytes.
+  return encodePacket(0x65, Buffer.from([hour, minute]));
+}
+
+export function takeChairReply({ success = true } = {}) {
+  // TakeChairReply (0xca) uses the common one-byte result layout.
+  return encodePacket(0xca, Buffer.from([success ? 1 : 0]));
+}
+
+export function takeChairNotify({ characterId = 1, chairId = 0 } = {}) {
+  if (!Number.isInteger(characterId) || characterId < 0 || characterId > 0xffffffff || !Number.isInteger(chairId) || chairId < 0 || chairId > 255) {
+    throw new Error('Invalid chair notification');
+  }
+  // Writer at 0x4761a0: runtime actor u32 followed by chair/point u8.
+  const payload = Buffer.alloc(5);
+  payload.writeUInt32LE(characterId, 0);
+  payload[4] = chairId;
+  return encodePacket(0xcb, payload);
+}
+
+export function riseChairNotify({ characterId = 1, chairId = 0 } = {}) {
+  if (!Number.isInteger(characterId) || characterId < 0 || characterId > 0xffffffff || !Number.isInteger(chairId) || chairId < 0 || chairId > 255) {
+    throw new Error('Invalid rise-chair notification');
+  }
+  // RiseChairNotify shares TakeChairNotify's actor-u32/chair-u8 layout.
+  const payload = Buffer.alloc(5);
+  payload.writeUInt32LE(characterId, 0);
+  payload[4] = chairId;
+  return encodePacket(0xcd, payload);
+}
+
+export function equipChangeNotify({ characterId = 1, equipmentSlot, itemId } = {}) {
+  if (!Number.isInteger(characterId) || characterId < 0 || characterId > 0xffffffff || !Number.isInteger(equipmentSlot) || equipmentSlot < 0 || equipmentSlot > 255 || !Number.isInteger(itemId) || itemId < 0 || itemId > 0xffffffff) {
+    throw new Error('Invalid equipment change notification');
+  }
+  // Writer at 0x4851f0: runtime actor u32, equipment slot u8, item ID u32.
+  const payload = Buffer.alloc(9);
+  payload.writeUInt32LE(characterId, 0);
+  payload[4] = equipmentSlot;
+  payload.writeUInt32LE(itemId, 5);
+  return encodePacket(0x131, payload);
+}
+
 export function chatNotify({ characterId = 1, sender = 'Player', message, type = 3 } = {}) {
   const encodedSender = Buffer.from(sender, 'ascii');
   const encodedMessage = Buffer.from(message || '', 'ascii');
@@ -211,6 +289,31 @@ export function biteFishNotify({ characterId, fishId = 100, value = 1, size = 1 
   payload.writeUInt32LE(value, 8);
   payload.writeFloatLE(size, 12);
   return encodePacket(0xd4, payload);
+}
+
+export function strikeFishReply({ characterId, size = 1, fishStrength = 100, fishId = 100, playerStrength = 100, luck = 0, focusPower = 0, focusRate = 0, hitPoints = 100, success = false } = {}) {
+  // StrikeFishReply writer at 0x475620 serializes:
+  // u32, float, u16, u32, four u16 values, i16, and u8.
+  const payload = Buffer.alloc(25);
+  let offset = 0;
+  payload.writeUInt32LE(characterId >>> 0, offset); offset += 4;
+  payload.writeFloatLE(size, offset); offset += 4;
+  payload.writeUInt16LE(fishStrength, offset); offset += 2;
+  payload.writeUInt32LE(fishId >>> 0, offset); offset += 4;
+  payload.writeUInt16LE(playerStrength, offset); offset += 2;
+  payload.writeUInt16LE(luck, offset); offset += 2;
+  payload.writeUInt16LE(focusPower, offset); offset += 2;
+  payload.writeUInt16LE(focusRate, offset); offset += 2;
+  payload.writeInt16LE(hitPoints, offset); offset += 2;
+  payload[offset] = success ? 1 : 0;
+  return encodePacket(0xd6, payload);
+}
+
+export function fightingFinishReply({ status = 0 } = {}) {
+  // FightingFinishReply conditionally has a large success body, but its
+  // failure/cancel form is exactly the single status byte. The client handler
+  // uses status 0 to tear down its fishing UI and local movement lock.
+  return encodePacket(0xda, Buffer.from([status]));
 }
 
 export function fightingMotionTrade(payload) {

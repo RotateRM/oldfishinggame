@@ -1,0 +1,37 @@
+FishingChamp localhost + windowed-mode patch
+=============================================
+
+This folder contains only patch scripts. It does not contain the full client,
+game assets, DLLs, or a replacement executable.
+
+Supported clean executable:
+  SHA-256 F76A869B79BE6E0277641BCD1796119054580ED05028F8701611D5EDE7D51D63
+
+Also supported:
+  The localhost-only executable previously produced by this project.
+
+Install
+-------
+1. Close FishingChamp.
+2. Double-click Apply-Patch.cmd.
+3. Enter the folder containing the clean FishingChamp.exe.
+
+Or run:
+  Apply-Patch.cmd "C:\Program Files (x86)\Gamescampus\FishingChamp"
+
+The patcher verifies the executable before changing it and creates:
+  FishingChamp.original.exe
+
+Result
+------
+- Login endpoint: 127.0.0.1 (ports remain 4000/4001)
+- Window: fixed 1024x768 client area with title, minimize, and close buttons
+- Patched SHA-256:
+  B01B5D39D7B841D19E7B60B25333B84CA0044FA461F6626F268AF767EE92C6BB
+
+Restore
+-------
+Run Restore-Original.cmd and select the same client folder.
+
+The local preservation server and launcher are separate from this client patch.
+They are not included here.
