@@ -22,6 +22,7 @@ fishing kind of works now
 gardening doesnt work yet
 aquarium works a little
 
+windowed mode + port patch added
 
 only set up for local hosting with ports :
 4000
